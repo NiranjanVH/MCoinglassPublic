@@ -1,0 +1,95 @@
+name: Trading Automation Pipeline
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types:
+      - run_coinglass
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out private source
+        uses: actions/checkout@v4
+        with:
+          repository: NiranjanVH/MCoinglassScraper
+          ref: main
+          path: private-src
+          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: private-src/requirements.txt
+
+      - name: Install dependencies and Chromium
+        working-directory: private-src
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Restore authentication
+        working-directory: private-src
+        env:
+          COINGLASS_AUTH_BASE64: ${{ secrets.COINGLASS_AUTH_BASE64 }}
+          CHATGPT_AUTH_BASE64: ${{ secrets.CHATGPT_AUTH_BASE64 }}
+          CHATGPT_PROFILE_DIR: ${{ vars.CHATGPT_PROFILE_DIR }}
+        run: |
+          python - <<'PY'
+          import base64
+          import binascii
+          import json
+          import os
+          from pathlib import Path
+
+          def decode_secret(name):
+              value = os.environ.get(name)
+              if not value:
+                  raise SystemExit(f"Required secret {name} is not configured.")
+              try:
+                  return base64.b64decode(value, validate=True)
+              except (binascii.Error, ValueError):
+                  raise SystemExit(f"Secret {name} is not valid base64.") from None
+
+          coinglass_auth = Path("coinglass_auth.json")
+          coinglass_auth.write_bytes(decode_secret("COINGLASS_AUTH_BASE64"))
+          coinglass_auth.chmod(0o600)
+
+          try:
+              chatgpt_state = json.loads(decode_secret("CHATGPT_AUTH_BASE64"))
+          except (UnicodeDecodeError, json.JSONDecodeError):
+              raise SystemExit(
+                  "Secret CHATGPT_AUTH_BASE64 must decode to valid JSON."
+              ) from None
+
+          if (
+              not isinstance(chatgpt_state, dict)
+              or not isinstance(chatgpt_state.get("cookies"), list)
+              or not isinstance(chatgpt_state.get("origins"), list)
+          ):
+              raise SystemExit(
+                  "Secret CHATGPT_AUTH_BASE64 must decode to an object "
+                  "with cookies and origins lists."
+              )
+
+          chatgpt_auth = Path("chatgpt_auth.json")
+          chatgpt_auth.write_text(json.dumps(chatgpt_state), encoding="utf-8")
+          chatgpt_auth.chmod(0o600)
+          PY
+
+      - name: Run automation once
+        working-directory: private-src
+        env:
+          CHATGPT_PROFILE_DIR: ${{ vars.CHATGPT_PROFILE_DIR }}
+        run: python main1.py --once
