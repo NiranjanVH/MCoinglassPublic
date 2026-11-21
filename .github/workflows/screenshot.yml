@@ -92,6 +92,31 @@ jobs:
           CHATGPT_PROFILE_DIR: ${{ vars.CHATGPT_PROFILE_DIR }}
         run: python main1.py --once
 
+      - name: Upload CoinGlass chart screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coinglass-chart-screenshots-${{ github.run_number }}
+          path: private-src/screenshots/*.png
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload ChatGPT failure screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-failure-screenshot
+          path: private-src/error/debug_chatgpt_failure.png
+          if-no-files-found: ignore
+
+      - name: Upload CoinGlass failure screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coinglass-failure-screenshots
+          path: private-src/error/coinglass_*_failure.png
+          if-no-files-found: ignore
+
       - name: Trigger McoinglassPublic1 on success
         if: success()
         run: |
